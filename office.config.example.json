@@ -1,8 +1,6 @@
 {
-  "boss": {
-    "name": "YourName",
-    "sprite": "Me-1",
-    "color": "#ff4444",
-    "emoji": "crown"
-  }
+  "product": "New Bot HQ",
+  "domain": "grokbottech.com",
+  "mode": "PAPER RESEARCH ONLY",
+  "statusUrl": "https://dinguspingus84acl.github.io/new-bot-hq/status.json"
 }

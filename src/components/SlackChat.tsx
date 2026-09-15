@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { ROLE_TO_CHAR } from '../config'
-import { getSpritePath, useTheme, toggleTheme, getTheme, themedDisplayName } from '../theme'
+import { getSpritePath, useTheme, themedDisplayName } from '../theme'
 
 function getAvatarSrc(role: string, agentId?: string): string {
   const charBase = ROLE_TO_CHAR[role] ?? 'employee-3'
@@ -44,7 +44,7 @@ interface SlackChatProps {
 
 const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggleMute, onVolumeChange, onSendMessage, onReaction, autoTypeText, dayPhase, typingUser, lastSeenId }) => {
   const theme = useTheme()
-  void theme // Why: subscribe so avatars re-render when /the-office toggles
+  void theme
   const bodyRef = useRef<HTMLDivElement>(null)
   const [inputText, setInputText] = useState('')
   const [showSlashHint, setShowSlashHint] = useState(false)
@@ -73,28 +73,6 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
     onReaction?.(msg.id, updated)
     setEmojiPickerMsgId(null)
   }, [onReaction])
-
-  // Cron/chat-monitor pause toggle
-  const [cronPaused, setCronPaused] = useState(false)
-
-  // Load initial state from server
-  useEffect(() => {
-    fetch('http://127.0.0.1:3334/chat/cron-state')
-      .then(r => r.json())
-      .then(d => setCronPaused(!!d.paused))
-      .catch(() => {})
-  }, [])
-
-  const toggleCron = useCallback(() => {
-    const newState = !cronPaused
-    setCronPaused(newState)
-    // Update the state file via a simple POST
-    fetch('http://127.0.0.1:3334/chat/cron-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paused: newState }),
-    }).catch(() => {})
-  }, [cronPaused])
 
   // Auto-type effect for video mode
   useEffect(() => {
@@ -133,20 +111,10 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
     <div className="slack-panel">
       <div className="slack-header">
         <div className="slack-channel-icon">#</div>
-        <span className="slack-channel-name">office-general</span>
+        <span className="slack-channel-name">hq-floor</span>
         <div className="slack-header-right">
           <div className="slack-online-dot" />
           <span className="slack-online-count">{onlineCount}</span>
-          <div
-            className={`slack-cron-toggle ${cronPaused ? 'paused' : 'active'}`}
-            onClick={toggleCron}
-            title={cronPaused ? 'Chat monitor paused — click to resume' : 'Chat monitor active — click to pause'}
-          >
-            <div className="slack-cron-track">
-              <div className="slack-cron-thumb" />
-            </div>
-            <span className="slack-cron-label">{cronPaused ? 'AI Off' : 'AI On'}</span>
-          </div>
           <button className="slack-mute-btn" onClick={onToggleMute}>
             {muted ? '🔇' : volume < 0.4 ? '🔈' : '🔊'}
           </button>
@@ -252,14 +220,13 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
             <span className="slack-slash-cmd">/status</span>
             <span className="slack-slash-cmd">/agents</span>
             <span className="slack-slash-cmd">/help</span>
-            <span className="slack-slash-cmd">/the-office</span>
           </div>
         )}
         <div className="slack-input-bar">
           <input
             type="text"
             className="slack-input-field"
-            placeholder="Message #office-general"
+            placeholder="Message #hq-floor"
             value={inputText}
             onChange={e => {
               const val = e.target.value
@@ -274,13 +241,7 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
               if (e.key === 'Enter' && inputText.trim()) {
                 const trimmed = inputText.trim()
                 // Client-side slash commands — not sent to backend
-                if (trimmed === '/the-office' || trimmed === '/theoffice') {
-                  toggleTheme()
-                  const nowOn = getTheme() === 'office'
-                  onSendMessage?.(nowOn ? '🧻 Dunder Mifflin mode: ON. Identity theft is not a joke.' : '🔁 Office theme: OFF')
-                } else {
-                  onSendMessage?.(trimmed)
-                }
+                onSendMessage?.(trimmed)
                 setInputText('')
                 setShowSlashHint(false)
               }

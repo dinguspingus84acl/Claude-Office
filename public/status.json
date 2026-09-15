@@ -1,0 +1,23 @@
+{
+  "schema": "rclab.office_dashboard.v1",
+  "updated_at_utc": "2026-09-15T18:40:00Z",
+  "bot_name": "New Bot",
+  "mode": "PAPER_RESEARCH_ONLY",
+  "office_mood": "focused",
+  "domain": "grokbottech.com",
+  "repo": "dinguspingus84acl/new-bot-hq",
+  "hosted_on": "github-pages",
+  "stations": [
+    {"id":"coord","character":"New Bot","role":"Coordinator","emoji":"🤖","color":"#fda4af","task":"Coordinate + report to Jack","stage":"Command center live · waiting on Jack","progress":0.9,"state":"working","desk":0,"creature":"Bunbot","creature_id":"bunbot"},
+    {"id":"deep","character":"Mira","role":"Research / Forensics","emoji":"🕵️","color":"#7dd3fc","task":"Watchlist token forensics","stage":"Scan pass 4 of 5","progress":0.72,"state":"working","desk":1,"creature":"Scanslime","creature_id":"scanslime"},
+    {"id":"cluster","character":"Kai","role":"Analysis / Clustering","emoji":"🧩","color":"#c4b5fd","task":"Early-buyer cluster module","stage":"Parked after demo","progress":1.0,"state":"idle","desk":2,"creature":"Foldfox","creature_id":"foldfox"},
+    {"id":"watch","character":"Oak","role":"Monitoring / Watch","emoji":"👀","color":"#86efac","task":"Paper watchlist","stage":"Monitoring · no alerts","progress":1.0,"state":"idle","desk":3,"creature":"Voltbug","creature_id":"voltbug"},
+    {"id":"lab","character":"Rex","role":"Review / Archive","emoji":"📚","color":"#fcd34d","task":"Alpha lab archive","stage":"Ledger parked","progress":1.0,"state":"idle","desk":4,"creature":"Archivowl","creature_id":"archivowl"}
+  ],
+  "ticker": [
+    "Command center live — paper research only",
+    "Watchlist packets archived",
+    "No alerts on the watch floor",
+    "Paper only — no trades"
+  ]
+}
