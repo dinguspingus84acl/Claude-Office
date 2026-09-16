@@ -17,6 +17,20 @@ export const DOMAIN = userConfig.domain ?? PRODUCT_DOMAIN
 export const MODE_LABEL = userConfig.mode ?? PRODUCT_MODE
 export const STATUS_URL = userConfig.statusUrl ?? DEFAULT_STATUS_URLS[0]
 
+export {
+  currentHostname,
+  isLoopbackHost,
+  isPagesHost,
+  shouldUseLocalAgentSocket,
+  shouldOpenAgentSocket,
+  resolveLocalWsUrl,
+  resolveLocalRosterUrl,
+  resolveLocalChatUrl,
+  LOCAL_WS_URL,
+  LOCAL_ROSTER_URL,
+  LOCAL_CHAT_URL,
+} from './liveTransport'
+
 const coord = OPERATORS[0]
 
 export const BOSS_CHAR = coord.sprite

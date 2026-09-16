@@ -16,7 +16,10 @@ import {
   BREAK_DURATION,
   workMessage,
 } from './agentManager'
-import { PRODUCT, DOMAIN, MODE_LABEL, STATUS_URL } from './config'
+import {
+  PRODUCT, DOMAIN, MODE_LABEL, STATUS_URL,
+  shouldUseLocalAgentSocket, resolveLocalWsUrl, resolveLocalChatUrl,
+} from './config'
 import { getInteraction } from './interactions'
 import { getRoomImage } from './theme'
 import {
@@ -416,7 +419,12 @@ const App: React.FC = () => {
     }
   }, [addMsg, applyRecords])
 
-  useAgentSocket({ onEvent: handleEvent, url: 'ws://localhost:3334/ws', disabled: isSimMode })
+  const localSocket = shouldUseLocalAgentSocket()
+  useAgentSocket({
+    onEvent: handleEvent,
+    url: resolveLocalWsUrl() ?? undefined,
+    disabled: isSimMode || !localSocket,
+  })
 
   // Live status.json poll — primary ingestion. Identical ticks are no-ops.
   useEffect(() => {
@@ -827,7 +835,9 @@ const App: React.FC = () => {
         onSendMessage={(text) => {
           addMsg('New Bot', 'Coordinator', '#fda4af', text)
           setAutoTypeText(undefined)
-          fetch('http://127.0.0.1:3334/chat', {
+          const chatUrl = resolveLocalChatUrl()
+          if (!chatUrl) return
+          fetch(chatUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sender: 'New Bot', text }),

@@ -1,19 +1,21 @@
 /**
- * useAgentSocket — React hook for the Agent Office WebSocket connection.
+ * useAgentSocket — optional local-dev WebSocket for the Agent Office.
  *
- * Connects to ws://localhost:3334/ws, receives real-time agent events from the
- * optional local server, and exposes them to the React tree.
- * Primary live data is status.json polling — this socket is a secondary feed.
+ * On grokbottech.com / *.github.io this hook never opens a socket and never
+ * polls localhost roster. Production live data is status.json polling only.
  *
- * Features:
- *  - Auto-reconnect with exponential back-off (capped at 30 s)
- *  - Returns events as they arrive via onEvent callback style AND as a state array
- *  - Exposes `connected` boolean and `mcpServers` roster
- *  - Gracefully falls back to mock/offline mode when the server is unavailable
+ * On loopback hosts it may connect to ws://localhost:3334/ws. Failures soft-stop
+ * after a few retries so a missing local server does not spam reconnects.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { OfficeEvent } from '../types'
+import {
+  currentHostname,
+  resolveLocalRosterUrl,
+  resolveLocalWsUrl,
+  shouldOpenAgentSocket,
+} from '../liveTransport'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,9 +24,9 @@ import { OfficeEvent } from '../types'
 export interface AgentSocketOptions {
   /** Called for every incoming event. Stable reference recommended (useCallback). */
   onEvent?: (event: OfficeEvent) => void
-  /** WebSocket URL — defaults to ws://localhost:3334/ws */
+  /** WebSocket URL. Ignored unless the page is on a loopback host. */
   url?: string
-  /** Disable connection entirely (mock mode). Defaults to false. */
+  /** Disable connection entirely (mock / Pages / sim mode). Defaults to false. */
   disabled?: boolean
 }
 
@@ -35,7 +37,7 @@ export interface AgentSocketResult {
   mcpServers: string[]
   /** Last N events received (capped at 50) */
   events: OfficeEvent[]
-  /** True if the server has never been reachable since mount */
+  /** True if the socket is unused or the local server was never reachable */
   offline: boolean
 }
 
@@ -62,12 +64,14 @@ type ServerMessage = OfficeEvent | SnapshotMessage
 // Constants
 // ---------------------------------------------------------------------------
 
-const WS_URL         = 'ws://localhost:3334/ws'
-const ROSTER_URL     = 'http://localhost:3334/roster'
-const MAX_EVENTS     = 50
+const MAX_EVENTS = 50
 const BACKOFF_INITIAL = 500   // ms
-const BACKOFF_MAX    = 30_000 // ms
+const BACKOFF_MAX = 30_000    // ms
 const BACKOFF_FACTOR = 2
+/** Extra attempts after the first cold failure, then stop. */
+const MAX_COLD_RETRIES = 2
+/** Extra attempts after a drop of a socket that had opened. */
+const MAX_HOT_RETRIES = 6
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -76,51 +80,38 @@ const BACKOFF_FACTOR = 2
 export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketResult {
   const {
     onEvent,
-    url     = WS_URL,
+    url,
     disabled = false,
   } = options
+
+  const hostname = currentHostname()
+  const resolvedUrl = url || resolveLocalWsUrl(hostname) || ''
+  const allowSocket = shouldOpenAgentSocket({
+    disabled,
+    url: resolvedUrl || null,
+    hostname,
+  })
 
   const [connected, setConnected]   = useState(false)
   const [mcpServers, setMcpServers] = useState<string[]>([])
   const [events, setEvents]         = useState<OfficeEvent[]>([])
-  const [offline, setOffline]       = useState(false)
+  const [offline, setOffline]       = useState(!allowSocket)
 
-  // Refs so reconnect logic can read latest values without re-creating effects
   const wsRef          = useRef<WebSocket | null>(null)
   const retryCountRef  = useRef(0)
   const retryTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef     = useRef(true)
   const onEventRef     = useRef(onEvent)
+  const everOpenedRef  = useRef(false)
+  const stoppedRef     = useRef(false)
 
   useEffect(() => { onEventRef.current = onEvent }, [onEvent])
 
-  // ---------------------------------------------------------------------------
-  // Roster fetch (runs once on mount; refreshes after reconnect)
-  // ---------------------------------------------------------------------------
-  const fetchRoster = useCallback(async () => {
-    try {
-      const res = await fetch(ROSTER_URL, { signal: AbortSignal.timeout(2000) })
-      if (!res.ok) return
-      const data = await res.json()
-      if (mountedRef.current && Array.isArray(data.mcpServers)) {
-        setMcpServers(data.mcpServers)
-      }
-    } catch {
-      // Server not reachable — roster will come via snapshot message
-    }
-  }, [])
-
-  // ---------------------------------------------------------------------------
-  // Push an event into the local events array and call the onEvent callback
-  // ---------------------------------------------------------------------------
   const pushEvent = useCallback((event: OfficeEvent) => {
     setEvents(prev => [...prev.slice(-(MAX_EVENTS - 1)), event])
     onEventRef.current?.(event)
   }, [])
 
-  // ---------------------------------------------------------------------------
-  // Process a raw message from the WebSocket
-  // ---------------------------------------------------------------------------
   const handleMessage = useCallback((raw: string) => {
     let msg: ServerMessage
     try {
@@ -134,7 +125,6 @@ export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketRes
       if (snap.mcpServers?.length) {
         setMcpServers(snap.mcpServers)
       }
-      // Emit synthetic spawn events for agents that were already active
       for (const agent of snap.activeAgents ?? []) {
         const event: OfficeEvent = {
           type: 'agent_spawned',
@@ -150,18 +140,48 @@ export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketRes
       return
     }
 
-    // Regular office event
     pushEvent(msg as OfficeEvent)
   }, [pushEvent])
 
-  // ---------------------------------------------------------------------------
-  // Connect / reconnect logic
-  // ---------------------------------------------------------------------------
-  const connect = useCallback(() => {
-    if (!mountedRef.current || disabled) return
+  useEffect(() => {
+    mountedRef.current = true
+    retryCountRef.current = 0
+    everOpenedRef.current = false
+    stoppedRef.current = false
 
-    // Clean up any existing socket
-    if (wsRef.current) {
+    if (!allowSocket || !resolvedUrl) {
+      setConnected(false)
+      setOffline(true)
+      return () => {
+        mountedRef.current = false
+      }
+    }
+
+    const rosterUrl = resolveLocalRosterUrl()
+
+    const fetchRoster = async () => {
+      if (!rosterUrl) return
+      try {
+        const res = await fetch(rosterUrl, { signal: AbortSignal.timeout(2000) })
+        if (!res.ok) return
+        const data = await res.json()
+        if (mountedRef.current && Array.isArray(data.mcpServers)) {
+          setMcpServers(data.mcpServers)
+        }
+      } catch {
+        // Local server not reachable — roster may arrive via snapshot instead.
+      }
+    }
+
+    const clearRetry = () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    }
+
+    const dropSocket = () => {
+      if (!wsRef.current) return
       wsRef.current.onopen    = null
       wsRef.current.onmessage = null
       wsRef.current.onclose   = null
@@ -170,94 +190,78 @@ export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketRes
       wsRef.current = null
     }
 
-    let ws: WebSocket
-    try {
-      ws = new WebSocket(url)
-    } catch {
-      // WebSocket constructor itself threw — schedule retry
-      scheduleReconnect()
-      return
-    }
+    const scheduleReconnect = () => {
+      if (!mountedRef.current || stoppedRef.current) return
 
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      if (!mountedRef.current) return
-      retryCountRef.current = 0
-      setConnected(true)
-      setOffline(false)
-      fetchRoster()
-    }
-
-    ws.onmessage = (evt) => {
-      if (!mountedRef.current) return
-      handleMessage(evt.data)
-    }
-
-    ws.onclose = () => {
-      if (!mountedRef.current) return
-      setConnected(false)
-      scheduleReconnect()
-    }
-
-    ws.onerror = () => {
-      // onerror is always followed by onclose — let onclose handle retry
-      if (retryCountRef.current === 0) {
-        // First failure: mark as offline
+      const max = everOpenedRef.current ? MAX_HOT_RETRIES : MAX_COLD_RETRIES
+      if (retryCountRef.current >= max) {
+        stoppedRef.current = true
         setOffline(true)
+        return
+      }
+
+      clearRetry()
+      const delay = Math.min(
+        BACKOFF_INITIAL * Math.pow(BACKOFF_FACTOR, retryCountRef.current),
+        BACKOFF_MAX,
+      )
+      retryCountRef.current += 1
+      retryTimerRef.current = setTimeout(() => {
+        if (mountedRef.current && !stoppedRef.current) connect()
+      }, delay)
+    }
+
+    const connect = () => {
+      if (!mountedRef.current || stoppedRef.current) return
+      dropSocket()
+
+      let ws: WebSocket
+      try {
+        ws = new WebSocket(resolvedUrl)
+      } catch {
+        scheduleReconnect()
+        return
+      }
+
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        if (!mountedRef.current) return
+        everOpenedRef.current = true
+        retryCountRef.current = 0
+        stoppedRef.current = false
+        setConnected(true)
+        setOffline(false)
+        void fetchRoster()
+      }
+
+      ws.onmessage = (evt) => {
+        if (!mountedRef.current) return
+        handleMessage(String(evt.data))
+      }
+
+      ws.onclose = () => {
+        if (!mountedRef.current) return
+        setConnected(false)
+        scheduleReconnect()
+      }
+
+      ws.onerror = () => {
+        if (retryCountRef.current === 0 && !everOpenedRef.current) {
+          setOffline(true)
+        }
       }
     }
-  }, [url, disabled, fetchRoster, handleMessage])
 
-  const scheduleReconnect = useCallback(() => {
-    if (!mountedRef.current || disabled) return
-
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current)
-    }
-
-    const delay = Math.min(
-      BACKOFF_INITIAL * Math.pow(BACKOFF_FACTOR, retryCountRef.current),
-      BACKOFF_MAX
-    )
-    retryCountRef.current += 1
-
-    retryTimerRef.current = setTimeout(() => {
-      if (mountedRef.current && !disabled) {
-        connect()
-      }
-    }, delay)
-  }, [connect, disabled])
-
-  // ---------------------------------------------------------------------------
-  // Mount / unmount
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    mountedRef.current = true
-
-    if (!disabled) {
-      connect()
-    }
+    connect()
 
     return () => {
       mountedRef.current = false
-
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current)
-        retryTimerRef.current = null
-      }
-
-      if (wsRef.current) {
-        wsRef.current.onopen    = null
-        wsRef.current.onmessage = null
-        wsRef.current.onclose   = null
-        wsRef.current.onerror   = null
-        try { wsRef.current.close() } catch { /* ignore */ }
-        wsRef.current = null
-      }
+      stoppedRef.current = true
+      clearRetry()
+      dropSocket()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled])
+  }, [allowSocket, resolvedUrl, handleMessage])
 
   return { connected, mcpServers, events, offline }
 }
