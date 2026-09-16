@@ -66,14 +66,19 @@ Audio is **muted by default**. Unmute in the floor log if you want approval / fa
 
 ## GitHub Pages
 
-Workflow: `.github/workflows/pages.yml`. After Pages is enabled on this repo:
+Workflow: `.github/workflows/pages.yml`. Production is the apex custom domain.
 
-`https://dinguspingus84acl.github.io/Claude-Office/`
+- **Live:** https://grokbottech.com/ (`public/CNAME`, `BASE_PATH=/`)
+- **Project URL fallback:** https://dinguspingus84acl.github.io/Claude-Office/
+
+The Actions build sets `BASE_PATH=/` so asset URLs resolve on the custom domain. Vite reads `process.env.BASE_PATH` in `vite.config.ts` (default `./` for local builds).
+
+To preview the github.io project path instead, dispatch the workflow with `base_path=/Claude-Office/`. Do not use that value for production — `/Claude-Office/` asset prefixes 404 on `grokbottech.com`.
 
 Local preview of the static build:
 
 ```bash
-npm run build:pages
+BASE_PATH=/ npm run build:pages
 npx vite preview --port 4173
 ```
 
