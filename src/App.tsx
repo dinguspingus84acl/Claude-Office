@@ -676,7 +676,9 @@ const App: React.FC = () => {
     <div className="app-wrapper nbhq">
       <div className="title-bar nbhq-bar">
         <span className="nbhq-brand">{PRODUCT}</span>
-        <span className={`nbhq-live${liveFeed ? ' on' : ''}`}>{liveFeed ? 'LIVE' : 'OFFLINE'}</span>
+        <span className={`nbhq-live${liveFeed || isSimMode ? ' on' : ''}`}>
+          {isSimMode ? 'SIM' : liveFeed ? 'LIVE' : 'OFFLINE'}
+        </span>
         <span className="nbhq-stat">{activeCount} active</span>
         <button
           type="button"

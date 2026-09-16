@@ -461,7 +461,17 @@
   position: absolute;
   z-index: 10;
   transition: left 1.2s cubic-bezier(0.4, 0, 0.2, 1), top 1.2s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
+  pointer-events: auto;
+}
+.character-wrapper::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 92px;
+  pointer-events: auto;
 }
 
 .char-body-group {
@@ -471,6 +481,7 @@
 .char-sprite {
   image-rendering: pixelated;
   display: block;
+  pointer-events: auto;
 }
 
 /* Shadow under character */
