@@ -3,7 +3,8 @@
  *
  * Runs on port 3334.
  * - React frontend connects via ws://localhost:3334/ws
- * - Claude Code hook script POSTs to http://localhost:3334/event
+ * - Optional local clients POST to http://localhost:3334/event
+ * - Primary live data is status.json (GET /status proxies the configured URL)
  * - GET /roster returns discovered MCP servers
  */
 
@@ -123,6 +124,7 @@ const KNOWN_EVENT_TYPES = new Set([
   'agent_completed',
   'mcp_call',
   'mcp_done',
+  'duty_update',
 ])
 
 const MAX_STRING_LEN = 200
@@ -165,6 +167,19 @@ app.options('*', (_req, res) => res.sendStatus(204))
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', agents: activeAgents.size, clients: wss?.clients.size ?? 0 })
+})
+
+const STATUS_URL = process.env.STATUS_URL
+  || 'https://dinguspingus84acl.github.io/new-bot-hq/status.json'
+
+app.get('/status', async (_req, res) => {
+  try {
+    const r = await fetch(STATUS_URL, { cache: 'no-store' })
+    if (!r.ok) return res.status(502).json({ error: 'status_unavailable' })
+    res.json(await r.json())
+  } catch {
+    res.status(502).json({ error: 'status_unavailable' })
+  }
 })
 
 // MCP server roster

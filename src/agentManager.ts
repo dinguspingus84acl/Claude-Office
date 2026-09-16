@@ -26,7 +26,7 @@
 
 import { Agent, AgentState, Position } from './types'
 import { AgentSpot, Waypoint } from './rooms'
-import { themedSpawn, themedWork, themedDone, themedCoffee, themedWater, getOfficePropForRole } from './theme'
+import { themedSpawn, themedWork, themedDone, themedCoffee, themedWater } from './theme'
 
 // ---------------------------------------------------------------------------
 // Spot assignment
@@ -230,18 +230,11 @@ export function getEffect(
   statusText?: string,
   agentId?: string,
   task?: string,
-  role?: string,
+  _role?: string,
 ): string | null {
-  // Office theme: prop overlays replace energy drinks for mapped cast members.
-  // Why: Dwight → CPR mask, Michael → Golden Ticket, etc. Still gated to "working" + break states.
-  const officeProp = role ? getOfficePropForRole(role) : null
-  if (officeProp && (state === 'working' || state === 'coffee-break')) {
-    return officeProp
-  }
-
-  // Boss gets Red Bull instead of coffee
-  if (agentId?.startsWith('boss-') && state === 'coffee-break') {
-    return '/sprites/effects/redbull-energy.png'
+  void task
+  if (agentId === 'new-bot' && state === 'coffee-break') {
+    return '/sprites/effects/need-coffee.png'
   }
 
   switch (state) {
@@ -255,7 +248,7 @@ export function getEffect(
       return null
     }
     case 'coffee-break': {
-      // Boss gets Red Bull (handled above), water breaks get water glass
+      // Water breaks get a glass; coffee uses the donor coffee bubble.
       const breakText = (statusText ?? '').toLowerCase()
       if (breakText.includes('hydrat') || breakText.includes('h2o') || breakText.includes('water') || breakText.includes('refill')) {
         return '/sprites/effects/glass-water.png'
@@ -353,7 +346,8 @@ export function waterMessage(): string  { return themedWater() }
 /** Minimum time at desk before a coffee/water break can trigger (ms) */
 export const BREAK_MIN_DESK_TIME = 20_000
 /** Probability per second of initiating a break while at desk */
-export const BREAK_CHANCE_PER_SEC = 0.008
+/** Random wandering disabled — breaks only when status data asks for one. */
+export const BREAK_CHANCE_PER_SEC = 0
 /** How long agent waits at the break spot before returning (ms) */
 export const BREAK_DURATION = 8_000
 /** Walking speed in %-units per frame at 60fps */

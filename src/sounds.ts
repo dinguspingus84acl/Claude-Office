@@ -1,6 +1,6 @@
 // Retro 8-bit sound effects using Web Audio API
 let ctx: AudioContext | null = null
-let masterVolume = 0.5  // 0–1
+let masterVolume = 0  // muted by default — no autoplay audio
 
 function getCtx(): AudioContext {
   if (!ctx) ctx = new AudioContext()
@@ -167,7 +167,7 @@ export function playKeyboardClatter() {
 // ---------------------------------------------------------------------------
 // Volume control (0–1)
 // ---------------------------------------------------------------------------
-let preMuteVolume = 0.5  // restored when unmuting
+let preMuteVolume = 0.35
 
 export function setVolume(v: number) {
   masterVolume = Math.max(0, Math.min(1, v))

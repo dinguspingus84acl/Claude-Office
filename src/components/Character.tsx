@@ -5,36 +5,26 @@ import EffectBubble from './EffectBubble'
 import { getEffect } from '../agentManager'
 import { ROLE_TO_CHAR } from '../config'
 import { getSpritePath, useTheme } from '../theme'
+import { dutyEffect } from '../statusAdapter'
 
 export { ROLE_TO_CHAR }
 
 interface CharacterProps {
   agent: Agent
-  /** Milliseconds the agent has been in the 'idle' state (for sleeping bubble) */
   idleDurationMs?: number
-  /** Override z-index (for agents sitting behind desks) */
   zIndex?: number
-  /** Show typing indicator (about to post a Slack message) */
   isTyping?: boolean
+  selected?: boolean
+  onSelect?: (id: string) => void
 }
 
-// Movement direction → sprite variant
-// front-left  = moving up-right
-// front-right = moving up-left
-// rear-left   = moving down-right
-// rear-right  = not used for walking (idle/sitting only)
 type SpriteDirection = 'front-left' | 'front-right' | 'rear-left' | 'rear-right'
 
 function getDirectionFromDelta(dx: number, dy: number): SpriteDirection {
-  // In isometric view:
-  //   up-right   → front-left
-  //   up-left    → front-right
-  //   down-right → rear-left
-  //   down-left  → front-left (facing camera, moving left)
-  if (dy < 0 && dx >= 0)  return 'front-left'   // up-right
-  if (dy < 0 && dx < 0)   return 'front-right'  // up-left
-  if (dy >= 0 && dx >= 0)  return 'rear-left'    // down-right
-  return 'front-left'                             // down-left
+  if (dy < 0 && dx >= 0)  return 'front-left'
+  if (dy < 0 && dx < 0)   return 'front-right'
+  if (dy >= 0 && dx >= 0)  return 'rear-left'
+  return 'front-left'
 }
 
 function getCharBase(role: string): string {
@@ -53,12 +43,10 @@ function getAnimState(state: AgentState): string {
   }
 }
 
-// Speech bubble only shown briefly when statusText changes (like posting to Slack)
 function shouldShowBubble(state: AgentState): boolean {
   return state === 'talking-to-manager'
 }
 
-// Opposite direction for random "looking around"
 const OPPOSITE: Record<SpriteDirection, SpriteDirection> = {
   'front-left': 'rear-right',
   'front-right': 'rear-left',
@@ -66,7 +54,9 @@ const OPPOSITE: Record<SpriteDirection, SpriteDirection> = {
   'rear-right': 'front-left',
 }
 
-const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex, isTyping }) => {
+const Character: React.FC<CharacterProps> = ({
+  agent, idleDurationMs = 0, zIndex, isTyping, selected, onSelect,
+}) => {
   const prevPosRef = useRef({ x: agent.position.x, y: agent.position.y })
   const directionRef = useRef<SpriteDirection>(agent.spriteFacing ?? 'front-right')
   const [turnedAround, setTurnedAround] = useState(false)
@@ -74,37 +64,29 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
   const isMoving = agent.state === 'new-hire' || agent.state === 'walking-to-desk' ||
     agent.state === 'coffee-break' || agent.state === 'completed' || agent.state === 'changing-room'
 
-  // Calculate movement direction when walking
   const dx = agent.position.x - prevPosRef.current.x
   const dy = agent.position.y - prevPosRef.current.y
 
   if (isMoving && (Math.abs(dx) > 0.005 || Math.abs(dy) > 0.005)) {
     directionRef.current = getDirectionFromDelta(dx, dy)
   } else if (!isMoving && agent.spriteFacing) {
-    // At a spot — use the spot's facing direction (or opposite if turned around)
     directionRef.current = turnedAround ? OPPOSITE[agent.spriteFacing] : agent.spriteFacing
   }
   prevPosRef.current = { x: agent.position.x, y: agent.position.y }
 
-  // Randomly turn around while working at desk for random durations
   useEffect(() => {
     if (agent.state !== 'working') {
       setTurnedAround(false)
       return
     }
-
-    // cancelledRef prevents stale callbacks from firing after cleanup
     const cancelledRef = { current: false }
     let timeout: ReturnType<typeof setTimeout>
-
     const scheduleTurn = () => {
       if (cancelledRef.current) return
-      // Wait 3–15 seconds before turning
       const waitTime = 3000 + Math.random() * 12000
       timeout = setTimeout(() => {
         if (cancelledRef.current) return
         setTurnedAround(prev => !prev)
-        // Stay turned for 1–6 seconds then maybe turn back
         const stayTime = 1000 + Math.random() * 5000
         timeout = setTimeout(() => {
           if (cancelledRef.current) return
@@ -113,7 +95,6 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
         }, stayTime)
       }, waitTime)
     }
-
     scheduleTurn()
     return () => {
       cancelledRef.current = true
@@ -121,24 +102,41 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
     }
   }, [agent.state])
 
+  if (agent.present === false) return null
+
   const animState = getAnimState(agent.state)
-  const charBase = getCharBase(agent.role)
-  const theme = useTheme() // Why: re-render on theme toggle so sprite path updates
+  const charBase = getCharBase(agent.role) || getCharBase(agent.id)
+  const theme = useTheme()
   const spriteSrc = getSpritePath(agent.id, agent.role, charBase, directionRef.current)
   void theme
 
+  const duty = agent.dutyStatus
+  const cueOnce = duty === 'done' && agent.cueKey === `done:${agent.updatedAt ?? ''}`
+  const dutyFx = duty ? dutyEffect(duty, cueOnce || duty !== 'done') : null
   const effectSrc = isTyping
     ? '/sprites/effects/typing.png'
-    : getEffect(agent.state, idleDurationMs, agent.statusText, agent.id, agent.task, agent.role)
+    : dutyFx ?? getEffect(agent.state, idleDurationMs, agent.statusText, agent.id, agent.task, agent.role)
+
+  const dutyClass = duty === 'needs_approval' ? ' duty-approval'
+    : duty === 'blocked' || duty === 'failed' ? ' duty-blocked'
+    : ''
+
+  const atDesk = Math.abs(agent.position.x - agent.deskPosition.x) < 1.2
+    && Math.abs(agent.position.y - agent.deskPosition.y) < 1.2
 
   return (
     <div
-      className={`character-wrapper state-${animState}`}
+      className={`character-wrapper state-${animState}${dutyClass}${selected ? ' selected' : ''}`}
       style={{
         left: `${agent.position.x}%`,
         top: `${agent.position.y}%`,
         transform: 'translate(-50%, -100%)',
         zIndex: zIndex ?? Math.round(agent.position.y),
+        cursor: 'pointer',
+      }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect?.(agent.id)
       }}
     >
       {effectSrc && <EffectBubble src={effectSrc} alt={agent.state} />}
@@ -154,13 +152,21 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
           alt={agent.name}
           className="char-sprite"
           style={{
-            height: agent.id.startsWith('boss-') ? 85 : 78,
+            height: agent.id === 'new-bot' ? 85 : 78,
             width: 'auto',
             filter: `drop-shadow(0 0 1px ${agent.color}) drop-shadow(0 0 0.5px #000)`,
             animationDelay: `${(agent.id.charCodeAt(0) * 0.37) % 3}s`,
           }}
           draggable={false}
         />
+        {atDesk && agent.companionId && (
+          <img
+            src={`/sprites/companions/${agent.companionId}.png`}
+            alt={agent.companion ?? 'companion'}
+            className="companion-sprite"
+            draggable={false}
+          />
+        )}
       </div>
     </div>
   )
