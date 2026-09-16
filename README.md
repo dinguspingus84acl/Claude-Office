@@ -32,6 +32,8 @@ Default URLs (first that succeeds):
 
 Override with `?status=<url>`, `VITE_STATUS_URL`, or `office.config.json` → `statusUrl`.
 
+On `grokbottech.com` and `*.github.io` the optional local WebSocket (`ws://localhost:3334/ws`) and roster poll (`http://localhost:3334/roster`) are **never opened**. Those endpoints exist only for loopback (`localhost` / `127.0.0.1`). If a local socket URL is missing, not loopback-allowed, or the connection fails, the client stops retrying and keeps polling `status.json` quietly.
+
 Identical `{id,status,task,progress,lastAction}` ticks do **not** restart walks, sounds, bubbles, or effects.
 
 Normalized record shape:

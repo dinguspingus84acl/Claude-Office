@@ -23,7 +23,8 @@
     "start": "npm run dev:electron",
     "server": "node server/index.js",
     "install-hooks": "bash hooks/install-hooks.sh",
-    "build:pages": "tsc && vite build"
+    "build:pages": "tsc && vite build",
+    "test": "node --experimental-strip-types --test scripts/verify-live-transport.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
