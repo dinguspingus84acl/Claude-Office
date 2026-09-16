@@ -1,9 +1,21 @@
 name: GitHub Pages
 
+# Custom domain https://grokbottech.com/ is served at the site root, so BASE_PATH
+# must be `/` (not `/Claude-Office/`). Vite already reads process.env.BASE_PATH.
+#
+# Fallback for the project URL https://dinguspingus84acl.github.io/Claude-Office/:
+# run this workflow via workflow_dispatch with base_path=/Claude-Office/.
+# That preview will 404 asset paths on the custom domain — do not use it for prod.
+
 on:
   push:
-    branches: [main, 'cursor/new-bot-hq-reskin-37be']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      base_path:
+        description: 'Vite BASE_PATH. Use / for grokbottech.com (default). Use /Claude-Office/ for the github.io project URL.'
+        required: false
+        default: '/'
 
 permissions:
   contents: read
@@ -26,7 +38,7 @@ jobs:
       - run: npm ci
       - name: Build
         env:
-          BASE_PATH: /Claude-Office/
+          BASE_PATH: ${{ inputs.base_path || '/' }}
         run: npm run build:pages
       - uses: actions/upload-pages-artifact@v3
         with:

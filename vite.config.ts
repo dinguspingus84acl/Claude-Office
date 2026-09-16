@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Pages: BASE_PATH=/ for grokbottech.com; /Claude-Office/ for the github.io project URL.
   base: process.env.BASE_PATH || './',
   server: {
     port: 3333,
